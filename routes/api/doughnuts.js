@@ -1,3 +1,6 @@
+var Joi = require('joi');
+var Auth = require('./auth');
+
 exports.register = function (server, options, next) {
   server.route([
     {
@@ -16,13 +19,27 @@ exports.register = function (server, options, next) {
       method: 'POST',
       path: '/api/doughnuts',
       handler: function (request, reply) {
-        var db = request.server.plugins['hapi-mongodb'].db;
-        var style = request.payload.style;
-        var flavor = request.payload.flavor;
+        Auth.authenticated(request, function(result) {
+          if (result.authenticated) {
+            //create a post
+            var db       = request.server.plugins['hapi-mongodb'].db;
+            var ObjectID = request.server.plugins['hapi-mongodb'].ObjectID;
+            var session  = request.yar.get('hapi_doughnuts_session');
 
-        db.collection('doughnuts').insert({style: style, flavor: flavor}, function (err, doc) {
-          if (err) { return reply(err); }
-          reply(doc.ops[0]);
+            var doughnut = {
+              user_id : ObjectID(session.user_id),
+              style   : request.payload.style,
+              flavor  : request.payload.flavor
+            };
+
+            db.collection('doughnuts').insert(doughnut, function (err, doc) {
+              if (err) { return reply(err); }
+              reply(doc.ops[0]);
+            });
+          } else {
+            // can't create a post if you're not logged in
+            reply(result).code(400);
+          }
         });
       }
     },
@@ -30,14 +47,39 @@ exports.register = function (server, options, next) {
       method: 'DELETE',
       path: '/api/doughnuts/{id}',
       handler: function (request, reply) {
-        var db       = request.server.plugins['hapi-mongodb'].db;
-        var ObjectID = request.server.plugins['hapi-mongodb'].ObjectID;
-        var id = ObjectID(request.params.id);
+        Auth.authenticated(request, function(result) {
+          if (result.authenticated) { // logging in
+            var db       = request.server.plugins['hapi-mongodb'].db;
+            var ObjectID = request.server.plugins['hapi-mongodb'].ObjectID;
+            var session  = request.yar.get('hapi_doughnuts_session');
 
-        db.collection('doughnuts').remove({"_id": id}, function (err, doc) {
-          if (err) { return reply(err); }
-          reply(doc);
-        });
+            var id       = ObjectID(request.params.id);
+            var user_id  = ObjectID(session.user_id);
+
+
+            //find the doughnut
+            db.collection('doughnuts').findOne({"_id": id}, function (err, doughnut) {
+              if (err) { return reply(err).code(400); }
+
+              //check if doughnut exists
+              if (doughnut === null) {
+                return reply({message: 'There is no doughnut.'}).code(404);
+              }
+
+              //if doughnut's user_id is the same as current user, then remove doughnut
+              if(doughnut.user_id.toString() === user_id.toString()) { //your doughnut
+                db.collection('doughnuts').remove({"_id": id}, function (err, doc) {
+                  if (err) { return reply(err).code(400); }
+                  reply(doc);
+                });
+              } else { //not your doughnut
+                reply({message: "This is not your doughnut"}).code(400);
+              }
+            });
+          } else {
+            reply(result).code(400);
+          }
+        })
       }
     },
     {
