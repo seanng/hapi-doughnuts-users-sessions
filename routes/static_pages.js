@@ -1,7 +1,10 @@
+var Auth = require('./api/auth');
+
 exports.register = function (server, options, next) {
   // serving static files
   server.route([
     {
+      // serving static files
       method: 'GET',
       path: "/public/{path*}",
       handler: {
@@ -15,7 +18,14 @@ exports.register = function (server, options, next) {
       method: 'GET',
       path: '/',
       handler: function(request, reply) {
-        reply.view('index');
+        Auth.authenticated(request, function (result) {
+          if (result.authenticated) {
+             //307 is for redirection
+            reply.redirect('/doughnuts').code(307);
+          } else {
+            reply.view('index', {message: request.query.message}).code(200);
+          }
+        });
       }
     },
     {
@@ -23,7 +33,13 @@ exports.register = function (server, options, next) {
       method: 'GET',
       path: '/doughnuts',
       handler: function(request, reply) {
-        reply.view('doughnuts');
+        Auth.authenticated(request, function (result) {
+          if (result.authenticated){
+            reply.view('doughnuts').code(200);
+          } else {
+            reply.redirect('/?message=Please Log In First').code(307);
+          }
+        })
       }
     }
   ]);
